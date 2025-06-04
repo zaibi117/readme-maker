@@ -26,6 +26,7 @@ export function useRepositoryProcessor({
   setRepoInfo,
 }: UseRepositoryProcessorProps) {
   const { data: session } = useSession()
+  // @ts-ignore
   const accessToken = session?.user?.accessToken as string | undefined
 
   const updateStatus = useCallback(

@@ -4,7 +4,8 @@
 import { useSession, signOut } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useEffect } from 'react'
-import { LogOut, User, Mail, Calendar } from 'lucide-react'
+import { LogOut, User, Mail, Calendar, GithubIcon } from 'lucide-react'
+import Link from 'next/link'
 
 export default function HomePage() {
   const { data: session, status } = useSession()
@@ -43,6 +44,13 @@ export default function HomePage() {
               <span className="text-sm text-gray-600">
                 Welcome, {session.user?.name}
               </span>
+              <Link
+                href="/repositories"
+                className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-gray-700 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
+              >
+                <GithubIcon className="h-4 w-4 mr-2" />
+                Repository
+              </Link>
               <button
                 onClick={handleSignOut}
                 className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
@@ -62,7 +70,7 @@ export default function HomePage() {
               <h2 className="text-lg font-medium text-gray-900 mb-4">
                 Your Profile Information
               </h2>
-              
+
               <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
                 <div className="flex items-center space-x-3">
                   <div className="flex-shrink-0">

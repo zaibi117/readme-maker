@@ -14,7 +14,7 @@ export interface IUser extends Document {
 
 const UserSchema: Schema = new Schema({
   githubId: { type: String, required: true, unique: true },
-  email: { type: String, required: true, unique: true, index: true },
+  email: { type: String, required: true, unique: true, index: true }, // ✅ only index here
   name: { type: String, required: true },
   image: { type: String },
   provider: { type: String, enum: ["github"], default: "github" },
@@ -24,15 +24,12 @@ const UserSchema: Schema = new Schema({
   lastLogin: { type: Date, default: Date.now },
 })
 
-// Create indexes for faster lookups
-UserSchema.index({ email: 1 })
+// Only one manual index needed now
 UserSchema.index({ githubId: 1 })
 
-// Update the updatedAt field before saving
 UserSchema.pre('save', function(next) {
   this.updatedAt = new Date()
   next()
 })
 
-// Check if the model already exists to prevent OverwriteModelError during hot reloads
 export default mongoose.models.User || mongoose.model<IUser>("User", UserSchema)

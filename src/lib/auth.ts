@@ -72,7 +72,7 @@ export const authOptions: NextAuthOptions = {
         // Create or update user in MongoDB when they sign in
         await createOrUpdateUser({
           githubId: profile?.id?.toString() || user.id,
-          email: user.email!,
+          email: user.email || profile?.email || `${profile?.login}@users.noreply.github.com`,
           name: user.name!,
           image: user.image,
           accessToken: account?.access_token

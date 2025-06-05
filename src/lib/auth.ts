@@ -1,6 +1,62 @@
-// lib/auth.ts
+// @ts-nocheck
 import { NextAuthOptions } from "next-auth"
 import GithubProvider from "next-auth/providers/github"
+import mongoose from "mongoose"
+import User from "@/models/user"
+
+// MongoDB connection
+async function connectToDatabase() {
+  if (mongoose.connections[0].readyState) {
+    return
+  }
+
+  try {
+    await mongoose.connect(process.env.MONGODB_URI!)
+    console.log("Connected to MongoDB")
+  } catch (error) {
+    console.error("MongoDB connection error:", error)
+    throw error
+  }
+}
+
+// Function to create or update user
+async function createOrUpdateUser(userData: {
+  githubId: string
+  email: string
+  name: string
+  image?: string
+  accessToken?: string
+}) {
+  try {
+    await connectToDatabase()
+
+    const existingUser = await User.findOne({ email: userData.email })
+
+    if (existingUser) {
+      // Update existing user
+      existingUser.name = userData.name
+      existingUser.image = userData.image
+      existingUser.accessToken = userData.accessToken
+      existingUser.lastLogin = new Date()
+      await existingUser.save()
+      return existingUser
+    } else {
+      // Create new user
+      const newUser = await User.create({
+        githubId: userData.githubId,
+        email: userData.email,
+        name: userData.name,
+        image: userData.image,
+        accessToken: userData.accessToken,
+        provider: 'github'
+      })
+      return newUser
+    }
+  } catch (error) {
+    console.error("Error creating/updating user:", error)
+    throw error
+  }
+}
 
 export const authOptions: NextAuthOptions = {
   providers: [
@@ -11,6 +67,22 @@ export const authOptions: NextAuthOptions = {
     })
   ],
   callbacks: {
+    async signIn({ user, account, profile }) {
+      try {
+        // Create or update user in MongoDB when they sign in
+        await createOrUpdateUser({
+          githubId: profile?.id?.toString() || user.id,
+          email: user.email!,
+          name: user.name!,
+          image: user.image,
+          accessToken: account?.access_token
+        })
+        return true
+      } catch (error) {
+        console.error("Sign in error:", error)
+        return false
+      }
+    },
     async session({ session, token }) {
       if (token) {
         session.user = {
@@ -24,10 +96,13 @@ export const authOptions: NextAuthOptions = {
       }
       return session
     },
-    async jwt({ token, account }) {
+    async jwt({ token, account, profile }) {
       console.log("account", account)
       if (account) {
         token.accessToken = account?.access_token
+      }
+      if (profile) {
+        token.id = profile.id
       }
       return token
     },

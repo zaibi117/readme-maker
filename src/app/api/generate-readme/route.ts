@@ -1,22 +1,33 @@
 import { type NextRequest, NextResponse } from "next/server"
 import type { ChunkedFile } from "@/types/repository"
+import { geminiRateLimiter } from "@/lib/rate-limiter"
 
 interface GenerateReadmeRequest {
   summaries: ChunkedFile[]
   owner: string
   repo: string
-  accessToken?: string // GitHub access token
+  accessToken?: string
 }
 
 // Helper function to add delay
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-// Helper function to retry API calls
-async function retryApiCall<T>(apiCall: () => Promise<T>, maxRetries = 3, baseDelay = 2000): Promise<T> {
+// Helper function to retry API calls with rate limiting
+async function retryApiCallWithRateLimit<T>(apiCall: () => Promise<T>, maxRetries = 3, baseDelay = 2000): Promise<T> {
   let lastError: Error
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
+      // Check rate limit before making the call
+      const rateLimitCheck = await geminiRateLimiter.checkLimit("gemini-api")
+
+      if (!rateLimitCheck.allowed) {
+        console.log(
+          `Rate limit exceeded for README generation. Waiting until reset (${Math.ceil(geminiRateLimiter.getRemainingTime("gemini-api") / 1000)}s)`,
+        )
+        await geminiRateLimiter.waitForReset("gemini-api")
+      }
+
       return await apiCall()
     } catch (error) {
       lastError = error as Error
@@ -35,20 +46,31 @@ async function retryApiCall<T>(apiCall: () => Promise<T>, maxRetries = 3, baseDe
 }
 
 export async function POST(req: NextRequest) {
+  console.log("README generation API called")
+
   try {
     const body: GenerateReadmeRequest = await req.json()
     const { summaries, owner, repo, accessToken } = body
 
+    console.log(`Generating README for ${owner}/${repo} with ${summaries?.length || 0} summaries`)
+
     if (!summaries || !Array.isArray(summaries) || !owner || !repo) {
+      console.error("Invalid request data:", { summaries: !!summaries, owner, repo })
       return NextResponse.json({ error: "Invalid request data" }, { status: 400 })
     }
 
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) {
+      console.error("Gemini API key not configured")
       return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 })
     }
 
-    console.log(`Generating README for ${owner}/${repo} with ${summaries.length} summaries`)
+    // Check rate limit status before proceeding
+    const remaining = geminiRateLimiter.getRemainingRequests("gemini-api")
+    const resetTime = geminiRateLimiter.getRemainingTime("gemini-api")
+    console.log(
+      `Rate limit status for README generation: ${remaining} requests remaining, reset in ${Math.ceil(resetTime / 1000)}s`,
+    )
 
     // Group summaries by file
     const fileGroups: Record<string, string[]> = {}
@@ -56,10 +78,16 @@ export async function POST(req: NextRequest) {
       if (!fileGroups[chunk.file]) {
         fileGroups[chunk.file] = []
       }
-      if (chunk.summary && !chunk.summary.includes("[Summarization failed")) {
+      if (
+        chunk.summary &&
+        !chunk.summary.includes("[Summarization failed") &&
+        !chunk.summary.includes("[Failed to summarize")
+      ) {
         fileGroups[chunk.file].push(chunk.summary)
       }
     })
+
+    console.log(`Grouped summaries into ${Object.keys(fileGroups).length} files`)
 
     // Create a consolidated summary for each file
     const fileSummaries = Object.entries(fileGroups)
@@ -69,10 +97,38 @@ export async function POST(req: NextRequest) {
       })
       .join("\n\n")
 
+    if (!fileSummaries.trim()) {
+      console.warn("No valid summaries found, creating basic README")
+      const basicReadme = `# ${owner}/${repo}
+
+## Overview
+
+This repository contains a project that has been automatically analyzed.
+
+## Getting Started
+
+To get started with this project:
+
+1. Clone the repository
+2. Install dependencies
+3. Follow the setup instructions in the code files
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+Please check the repository for license information.`
+
+      return NextResponse.json({ readme: basicReadme })
+    }
+
     // Fetch additional repository information if access token is provided
     let repoInfo: any = {}
     if (accessToken) {
       try {
+        console.log("Fetching repository info with access token")
         const repoResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
           headers: {
             Accept: "application/vnd.github.v3+json",
@@ -84,6 +140,8 @@ export async function POST(req: NextRequest) {
         if (repoResponse.ok) {
           repoInfo = await repoResponse.json()
           console.log("Fetched repository info successfully")
+        } else {
+          console.warn("Failed to fetch repository info:", repoResponse.status)
         }
       } catch (error) {
         console.warn("Failed to fetch additional repository info:", error)
@@ -92,10 +150,11 @@ export async function POST(req: NextRequest) {
 
     // Create repository context
     const repoContext = repoInfo.description ? `Repository Description: ${repoInfo.description}\n` : ""
-
     const repoLanguage = repoInfo.language ? `Primary Language: ${repoInfo.language}\n` : ""
 
-    const readme = await retryApiCall(async () => {
+    console.log("Calling Gemini API for README generation")
+
+    const readme = await retryApiCallWithRateLimit(async () => {
       const response = await fetch(
         "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
         {
@@ -111,7 +170,7 @@ export async function POST(req: NextRequest) {
                   {
                     text: `Generate a comprehensive and professional README.md for the GitHub repository "${owner}/${repo}".
 
-${repoContext}${repoLanguage}
+${repoContext}\\${repoLanguage}
 
 Based on the following code analysis:
 
@@ -119,23 +178,34 @@ ${fileSummaries}
 
 Create a README that includes:
 
-1. **Project Title and Description** - Clear, engaging description
-2. **Features** - Key functionality and capabilities
-3. **Technologies Used** - Programming languages, frameworks, libraries
-4. **Installation** - Step-by-step setup instructions
-5. **Usage** - Code examples and basic usage
-6. **Project Structure** - Brief overview of main files/directories
-7. **Contributing** - Guidelines for contributors
-8. **License** - Standard license section
+1. **Project Title and Description** - Clear, engaging description  
+2. **Features** - Key functionality and capabilities  
+3. **Technologies Used** - Programming languages, frameworks, libraries  
+4. **Installation** - Step-by-step setup instructions  
+5. **Usage** - Code examples and basic usage  
+6. **Project Structure** - Brief overview of main files/directories  
+   - **STRICTLY USE a tree-like structure** (e.g. generated by \`tree\` command or similar)  
+   - Clearly show hierarchy and purpose of major components  
+7. **Contributing** - Guidelines for contributors  
+8. **License** - Standard license section  
 
-Format requirements:
-- Use proper Markdown syntax
-- Include code blocks with syntax highlighting
-- Use badges if appropriate
-- Make it professional and easy to read
-- Keep it concise but informative
-
-Generate only the README content, no additional commentary.`,
+**IMPORTANT:**  
+- Generate ONLY the README content in markdown format  
+- DO NOT wrap the output in markdown code blocks (no \\\`\\\`\\\`markdown)  
+- DO NOT include any prefixes or suffixes  
+- Start directly with the \`#\` title  
+- Use proper Markdown syntax throughout  
+- Include code blocks with syntax highlighting where appropriate  
+- Make it professional, clean, and easy to read  
+- Ensure **Project Structure** uses an indented tree format like:
+  \`\`\`
+  ├── public/
+  ├── src/
+  │   ├── components/
+  │   ├── pages/
+  │   └── utils/
+  └── package.json
+  \`\`\``,
                   },
                 ],
               },
@@ -176,26 +246,47 @@ Generate only the README content, no additional commentary.`,
 
       const data = await response.json()
 
+
       if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
         console.error("Invalid response structure:", data)
         throw new Error("Invalid response structure from Gemini API")
       }
 
-      return data.candidates[0].content.parts[0].text
+      let cleanedReadme = data.candidates[0].content.parts[0].text
+      console.log("THis is the data", cleanedReadme)
+      // Remove markdown code block wrappers if present
+      cleanedReadme = cleanedReadme.replace(/^```markdown\s*\n?/i, "")
+      cleanedReadme = cleanedReadme.replace(/\n?```\s*$/i, "")
+      cleanedReadme = cleanedReadme.replace(/^```\s*\n?/i, "")
+      cleanedReadme = cleanedReadme.replace(/\n?```\s*$/i, "")
+
+      // Trim any extra whitespace
+      cleanedReadme = cleanedReadme.trim()
+
+      return cleanedReadme
     })
 
     console.log("README generated successfully")
-    return NextResponse.json({ readme })
+    return NextResponse.json({
+      readme,
+      rateLimitInfo: {
+        remaining: geminiRateLimiter.getRemainingRequests("gemini-api"),
+        resetTime: geminiRateLimiter.getRemainingTime("gemini-api"),
+      },
+    })
   } catch (error) {
     console.error("Error in generate-readme API:", error)
 
-    // Return fallback README on error
-    const { summaries, owner, repo } = await req.json()
-    const fallbackReadme = `# ${owner}/${repo}
+    // Create a fallback README with the available summaries
+    try {
+      const body = await req.json()
+      const { summaries, owner, repo } = body
+
+      const fallbackReadme = `# ${owner}/${repo}
 
 ## Overview
 
-This repository contains code that has been automatically analyzed. Due to processing limitations, a complete README could not be generated.
+This repository contains code that has been automatically analyzed. Due to processing limitations, a complete README could not be generated automatically.
 
 ## Error Details
 
@@ -204,13 +295,19 @@ This repository contains code that has been automatically analyzed. Due to proce
 ## Code Analysis Summary
 
 ${summaries
-  .filter((chunk: ChunkedFile) => chunk.summary && !chunk.summary.includes("[Summarization failed"))
-  .map(
-    (chunk: ChunkedFile) => `### ${chunk.file} (Chunk ${chunk.chunk})
+          ?.filter(
+            (chunk: ChunkedFile) =>
+              chunk.summary &&
+              !chunk.summary.includes("[Summarization failed") &&
+              !chunk.summary.includes("[Failed to summarize"),
+          )
+          ?.map(
+            (chunk: ChunkedFile) => `### ${chunk.file} (Chunk ${chunk.chunk})
 
 ${chunk.summary}`,
-  )
-  .join("\n\n")}
+          )
+          ?.join("\n\n") || "No valid summaries available"
+        }
 
 ## Getting Started
 
@@ -224,6 +321,28 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 Please check the repository for license information.`
 
-    return NextResponse.json({ readme: fallbackReadme })
+      return NextResponse.json({ readme: fallbackReadme })
+    } catch (fallbackError) {
+      console.error("Failed to create fallback README:", fallbackError)
+      return NextResponse.json(
+        {
+          error: "Failed to generate README",
+          details: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 },
+      )
+    }
   }
+}
+
+// Add OPTIONS handler for CORS if needed
+export async function OPTIONS(req: NextRequest) {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
+  })
 }

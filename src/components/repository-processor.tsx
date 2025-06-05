@@ -1,6 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import React from "react"
+
+import { useState } from "react"
 import { StatusPanel } from "./status-panel"
 import { ReadmeViewer } from "./readme-viewer"
 import { useRepositoryProcessor } from "@/hooks/use-repository-processor"
@@ -26,22 +28,43 @@ export function RepositoryProcessor({ owner, repo }: RepositoryProcessorProps) {
   const [summarizedChunks, setSummarizedChunks] = useState<ChunkedFile[]>([])
   const [generatedReadme, setGeneratedReadme] = useState<string>("")
   const [repoInfo, setRepoInfo] = useState<any>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [hasCachedSummaries, setHasCachedSummaries] = useState(false)
 
-  const { processRepository } = useRepositoryProcessor({
-    owner,
-    repo,
-    setStatus,
-    setChunks,
-    setSummarizedChunks,
-    setGeneratedReadme,
-    setRepoInfo,
-  })
+  const { processRepository, stopProcessing, generateReadmeFromCache, loadSummariesFromCache } = useRepositoryProcessor(
+    {
+      owner,
+      repo,
+      setStatus,
+      setChunks,
+      setSummarizedChunks,
+      setGeneratedReadme,
+      setRepoInfo,
+      setIsProcessing,
+    },
+  )
 
-  useEffect(() => {
-    if (owner && repo && authStatus !== "loading") {
+  // Check for cached summaries on component mount
+  React.useEffect(() => {
+    async function checkCache() {
+      const { summaries } = await loadSummariesFromCache()
+      setHasCachedSummaries(!!summaries && summaries.length > 0)
+    }
+    checkCache()
+  }, [loadSummariesFromCache])
+
+  // Don't auto-process on load anymore, wait for user to click the button
+  const handleGenerateReadme = () => {
+    if (!isProcessing) {
       processRepository()
     }
-  }, [owner, repo, authStatus, processRepository])
+  }
+
+  const handleGenerateFromCache = () => {
+    if (!isProcessing && generateReadmeFromCache) {
+      generateReadmeFromCache()
+    }
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -58,11 +81,25 @@ export function RepositoryProcessor({ owner, repo }: RepositoryProcessorProps) {
       )}
 
       <div className="lg:col-span-1">
-        <StatusPanel status={status} chunks={chunks} summarizedChunks={summarizedChunks} />
+        <StatusPanel
+          status={status}
+          chunks={chunks}
+          summarizedChunks={summarizedChunks}
+          isProcessing={isProcessing}
+          onStop={stopProcessing}
+        />
       </div>
 
       <div className="lg:col-span-2">
-        <ReadmeViewer generatedReadme={generatedReadme} />
+        <ReadmeViewer
+          generatedReadme={generatedReadme}
+          owner={owner}
+          repo={repo}
+          isProcessing={isProcessing}
+          onGenerateReadme={handleGenerateReadme}
+          onGenerateFromCache={handleGenerateFromCache}
+          hasCachedSummaries={hasCachedSummaries}
+        />
       </div>
     </div>
   )

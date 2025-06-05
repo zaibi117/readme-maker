@@ -16,15 +16,17 @@ export interface ChunkedFile {
 
 export interface ProcessingStatus {
   stage:
-    | "idle"
-    | "fetching-tree"
-    | "filtering-files"
-    | "downloading-content"
-    | "chunking-files"
-    | "summarizing-chunks"
-    | "generating-readme"
-    | "complete"
-    | "error"
+  | "idle"
+  | "fetching-tree"
+  | "filtering-files"
+  | "downloading-content"
+  | "chunking-files"
+  | "summarizing-chunks"
+  | "generating-readme"
+  | "complete"
+  | "error"
+  | "stopped"
+  | "loading-cache"
   message: string
   progress: number
   currentFile?: string

@@ -11,6 +11,8 @@ export const IGNORED_DIRECTORIES = [
   "logs",
   ".cache",
   "public/static",
+  "components/ui",
+  ".vscode"
 ]
 
 export const IGNORED_FILES = [
@@ -24,6 +26,7 @@ export const IGNORED_FILES = [
   ".DS_Store",
   "Thumbs.db",
   "README.md",
+  "settings.json"
 ]
 
 export const BINARY_EXTENSIONS = [

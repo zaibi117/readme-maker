@@ -56,6 +56,80 @@ export class GitHubService {
     return data.tree.filter((item: any) => item.type === "blob")
   }
 
+  // New method: Check if README exists and fetch it
+  async fetchReadmeFile(owner: string, repo: string): Promise<{ content: string; exists: boolean }> {
+    try {
+      // Try different common README filenames and paths
+      const readmeVariants = [
+        "README.md",
+        "readme.md",
+        "Readme.md",
+        "README",
+        "readme",
+        "README.markdown",
+        "readme.markdown",
+        "docs/README.md",
+      ]
+
+      for (const readmePath of readmeVariants) {
+        try {
+          const response = await fetch(`https://api.github.com/repos/${owner}/${repo}/contents/${readmePath}`, {
+            headers: this.getHeaders(),
+          })
+
+          if (response.ok) {
+            const data = await response.json()
+            if (data.encoding === "base64" && data.content) {
+              return {
+                content: atob(data.content.replace(/\s/g, "")),
+                exists: true,
+              }
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to fetch ${readmePath}:`, error)
+          // Continue to next variant
+        }
+      }
+
+      // Try raw.githubusercontent.com as fallback
+      const branches = ["main", "master"]
+      for (const branch of branches) {
+        for (const readmePath of readmeVariants) {
+          try {
+            const response = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${readmePath}`, {
+              headers: {
+                "User-Agent": "GitHub-README-Generator",
+              },
+            })
+
+            if (response.ok) {
+              return {
+                content: await response.text(),
+                exists: true,
+              }
+            }
+          } catch (error) {
+            console.warn(`Failed to fetch ${readmePath} from ${branch}:`, error)
+            // Continue to next variant
+          }
+        }
+      }
+
+      // No README found
+      return {
+        content: "",
+        exists: false,
+      }
+    } catch (error) {
+      console.error("Error fetching README:", error)
+      return {
+        content: "",
+        exists: false,
+      }
+    }
+  }
+
   // Fallback: Use raw.githubusercontent.com for direct file access
   async fetchFileContentDirect(owner: string, repo: string, filePath: string, branch = "main"): Promise<string | null> {
     try {

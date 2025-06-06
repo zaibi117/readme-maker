@@ -272,11 +272,11 @@ export function ReadmeViewer({
   const renderReadmeContent = (content: string) => {
     if (!content) {
       return (
-        <div className="h-[600px] flex items-center justify-center text-gray-500 border rounded-md bg-gray-50">
+        <div className="h-[600px] flex items-center justify-center text-muted-foreground border rounded-md bg-muted">
           <div className="text-center">
-            <FileText className="h-16 w-16 mx-auto mb-4 text-gray-300" />
-            <p className="text-lg font-medium text-gray-600 mb-2">No README Available</p>
-            <p className="text-sm text-gray-500">
+            <FileText className="h-16 w-16 mx-auto mb-4 text-muted" />
+            <p className="text-lg font-medium text-foreground mb-2">No README Available</p>
+            <p className="text-sm text-muted-foreground">
               {activeTab === "original"
                 ? "This repository doesn't have an original README file"
                 : "No generated README available"}
@@ -294,8 +294,8 @@ export function ReadmeViewer({
         </TabsList>
 
         <TabsContent value="preview" className="mt-4">
-          <ScrollArea className="h-[600px] border rounded-md p-4 bg-white">
-            <div className="prose prose-sm max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-a:text-blue-600 prose-strong:text-gray-900 prose-code:text-pink-600 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
+          <ScrollArea className="h-[600px] border rounded-md p-4 bg-background">
+            <div className="prose prose-sm max-w-none prose-headings:text-foreground prose-p:text-muted-foreground prose-a:text-primary prose-strong:text-foreground prose-code:text-primary prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
               <ReactMarkdown
                 components={{
                   // @ts-ignore
@@ -312,38 +312,38 @@ export function ReadmeViewer({
                         {String(children).replace(/\n$/, "")}
                       </SyntaxHighlighter>
                     ) : (
-                      <code className="bg-gray-100 text-pink-600 px-1 py-0.5 rounded text-sm font-mono" {...props}>
+                      <code className="bg-muted text-primary px-1 py-0.5 rounded text-sm font-mono" {...props}>
                         {children}
                       </code>
                     )
                   },
                   h1: ({ children }) => (
-                    <h1 className="text-3xl font-bold mb-6 text-gray-900 border-b border-gray-200 pb-2">{children}</h1>
+                    <h1 className="text-3xl font-bold mb-6 text-foreground border-b border-border pb-2">{children}</h1>
                   ),
                   h2: ({ children }) => (
-                    <h2 className="text-2xl font-semibold mb-4 mt-8 text-gray-800 border-b border-gray-100 pb-1">
+                    <h2 className="text-2xl font-semibold mb-4 mt-8 text-foreground border-b border-border pb-1">
                       {children}
                     </h2>
                   ),
-                  h3: ({ children }) => <h3 className="text-xl font-medium mb-3 mt-6 text-gray-700">{children}</h3>,
-                  h4: ({ children }) => <h4 className="text-lg font-medium mb-2 mt-4 text-gray-700">{children}</h4>,
-                  p: ({ children }) => <p className="mb-4 text-gray-700 leading-relaxed">{children}</p>,
+                  h3: ({ children }) => <h3 className="text-xl font-medium mb-3 mt-6 text-foreground">{children}</h3>,
+                  h4: ({ children }) => <h4 className="text-lg font-medium mb-2 mt-4 text-foreground">{children}</h4>,
+                  p: ({ children }) => <p className="mb-4 text-muted-foreground leading-relaxed">{children}</p>,
                   ul: ({ children }) => (
-                    <ul className="list-disc list-inside mb-4 space-y-2 text-gray-700 ml-4">{children}</ul>
+                    <ul className="list-disc list-inside mb-4 space-y-2 text-muted-foreground ml-4">{children}</ul>
                   ),
                   ol: ({ children }) => (
-                    <ol className="list-decimal list-inside mb-4 space-y-2 text-gray-700 ml-4">{children}</ol>
+                    <ol className="list-decimal list-inside mb-4 space-y-2 text-muted-foreground ml-4">{children}</ol>
                   ),
-                  li: ({ children }) => <li className="text-gray-700">{children}</li>,
+                  li: ({ children }) => <li className="text-muted-foreground">{children}</li>,
                   blockquote: ({ children }) => (
-                    <blockquote className="border-l-4 border-blue-500 pl-4 italic text-gray-600 my-4 bg-blue-50 py-2 rounded-r">
+                    <blockquote className="border-l-4 border-primary pl-4 italic text-muted-foreground my-4 bg-secondary py-2 rounded-r">
                       {children}
                     </blockquote>
                   ),
                   a: ({ href, children }) => (
                     <a
                       href={href}
-                      className="text-blue-600 hover:text-blue-800 underline hover:no-underline"
+                      className="text-primary hover:text-primary/80 underline hover:no-underline"
                       target="_blank"
                       rel="noopener noreferrer"
                     >
@@ -352,26 +352,26 @@ export function ReadmeViewer({
                   ),
                   table: ({ children }) => (
                     <div className="overflow-x-auto my-4">
-                      <table className="min-w-full border border-gray-300 rounded-lg">{children}</table>
+                      <table className="min-w-full border border-border rounded-lg">{children}</table>
                     </div>
                   ),
-                  thead: ({ children }) => <thead className="bg-gray-50">{children}</thead>,
-                  tbody: ({ children }) => <tbody className="divide-y divide-gray-200">{children}</tbody>,
+                  thead: ({ children }) => <thead className="bg-muted">{children}</thead>,
+                  tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
                   tr: ({ children }) => <tr>{children}</tr>,
                   th: ({ children }) => (
-                    <th className="px-4 py-2 text-left text-sm font-medium text-gray-900 border-b border-gray-300">
+                    <th className="px-4 py-2 text-left text-sm font-medium text-foreground border-b border-border">
                       {children}
                     </th>
                   ),
                   td: ({ children }) => (
-                    <td className="px-4 py-2 text-sm text-gray-700 border-b border-gray-200">{children}</td>
+                    <td className="px-4 py-2 text-sm text-muted-foreground border-b border-border">{children}</td>
                   ),
                   pre: ({ children }) => (
-                    <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-4">{children}</pre>
+                    <pre className="bg-foreground text-background p-4 rounded-lg overflow-x-auto my-4">{children}</pre>
                   ),
-                  hr: () => <hr className="my-6 border-gray-300" />,
-                  strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
-                  em: ({ children }) => <em className="italic text-gray-700">{children}</em>,
+                  hr: () => <hr className="my-6 border-border" />,
+                  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                  em: ({ children }) => <em className="italic text-muted-foreground">{children}</em>,
                 }}
               >
                 {content}
@@ -381,8 +381,8 @@ export function ReadmeViewer({
         </TabsContent>
 
         <TabsContent value="markdown" className="mt-4">
-          <ScrollArea className="h-[600px] border rounded-md bg-gray-50">
-            <pre className="p-4 text-sm text-gray-800 whitespace-pre-wrap font-mono leading-relaxed">{content}</pre>
+          <ScrollArea className="h-[600px] border rounded-md bg-muted">
+            <pre className="p-4 text-sm text-foreground whitespace-pre-wrap font-mono leading-relaxed">{content}</pre>
           </ScrollArea>
         </TabsContent>
       </Tabs>
@@ -400,7 +400,7 @@ export function ReadmeViewer({
         </CardHeader>
         <CardContent>
           <div className="h-[600px] flex items-center justify-center">
-            <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
+            <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
         </CardContent>
       </Card>
@@ -411,15 +411,15 @@ export function ReadmeViewer({
     return (
       <Card className="h-full">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-red-600">
+          <CardTitle className="flex items-center gap-2 text-destructive">
             <AlertTriangle className="h-5 w-5" />
             Error Loading README
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Alert className="border-red-200 bg-red-50">
-            <AlertTriangle className="h-4 w-4 text-red-600" />
-            <AlertDescription className="text-red-800">{error}</AlertDescription>
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
           </Alert>
           <div className="mt-4">
             <Button onClick={() => window.location.reload()}>Retry</Button>
@@ -475,7 +475,6 @@ export function ReadmeViewer({
               onClick={onGenerateReadme}
               size="sm"
               disabled={isProcessing}
-              className="bg-blue-600 hover:bg-blue-700"
             >
               {isProcessing ? (
                 <>
@@ -497,9 +496,9 @@ export function ReadmeViewer({
 
         {/* Cache info alert */}
         {cacheMetadata && (
-          <Alert className="mt-4 border-blue-200 bg-blue-50">
-            <Database className="h-4 w-4 text-blue-600" />
-            <AlertDescription className="text-blue-800">
+          <Alert className="mt-4">
+            <Database className="h-4 w-4" />
+            <AlertDescription>
               <div className="flex items-center justify-between">
                 <div>
                   Cached summaries available ({cacheMetadata.successfulChunks} summaries from{" "}
@@ -510,7 +509,7 @@ export function ReadmeViewer({
                   size="sm"
                   variant="ghost"
                   disabled={clearingCache}
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  className="text-destructive hover:text-destructive"
                 >
                   {clearingCache ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Trash2 className="h-3 w-3" />}
                 </Button>
@@ -553,15 +552,15 @@ export function ReadmeViewer({
         {renderReadmeContent(getActiveContent())}
 
         {copied && (
-          <Alert className="mt-4 border-green-200 bg-green-50">
-            <Check className="h-4 w-4 text-green-600" />
-            <AlertDescription className="text-green-800">README copied to clipboard successfully!</AlertDescription>
+          <Alert className="mt-4">
+            <Check className="h-4 w-4" />
+            <AlertDescription>README copied to clipboard successfully!</AlertDescription>
           </Alert>
         )}
       </CardContent>
 
       {activeTab === "generated" && readmeData?.generatedReadme && (
-        <CardFooter className="border-t pt-4 text-xs text-gray-500">
+        <CardFooter className="border-t pt-4 text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
             <Calendar className="h-3 w-3" />
             <span>

@@ -18,7 +18,6 @@ const UserSchema: Schema = new Schema({
   name: { type: String, required: true },
   image: { type: String },
   provider: { type: String, enum: ["github"], default: "github" },
-  accessToken: { type: String },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   lastLogin: { type: Date, default: Date.now },

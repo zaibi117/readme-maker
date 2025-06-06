@@ -1,63 +1,82 @@
 "use client"
-import React, { useEffect } from 'react'
-import Link from 'next/link'
-import { useSession, signOut } from 'next-auth/react'
-import { GithubIcon, LogOut } from 'lucide-react'
-import { useRouter } from 'next/navigation'
-const Navbar = () => {
-    const { data: session, status } = useSession()
-    const router = useRouter()
 
-    useEffect(() => {
-        if (status === 'loading') return // Still loading
-        if (!session) router.push('/login') // Not signed in
-    }, [session, status, router])
+import { useSession, signOut } from "next-auth/react"
+import { Button } from "@/components/ui/button"
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Github, LogOut, User, Home, FileText } from "lucide-react"
+import Link from "next/link"
 
-    if (status === 'loading') {
-        return (
-            <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-                <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-gray-900"></div>
-            </div>
-        )
-    }
+export function Navbar() {
+    const { data: session } = useSession()
 
-    if (!session) {
-        return null // Will redirect to login
-    }
-
-    const handleSignOut = async () => {
-        await signOut({ callbackUrl: '/login' })
-    }
     return (
-        <nav className="bg-white shadow-sm">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                <div className="flex justify-between h-16">
-                    <div className="flex items-center">
-                        <h1 className="text-xl font-semibold text-gray-900">Dashboard</h1>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                        <span className="text-sm text-gray-600">
-                            Welcome, {session.user?.name}
-                        </span>
-                        <Link
-                            href="/repositories"
-                            className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-gray-700 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
-                        >
-                            <GithubIcon className="h-4 w-4 mr-2" />
-                            Repository
-                        </Link>
-                        <button
-                            onClick={handleSignOut}
-                            className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
-                        >
-                            <LogOut className="h-4 w-4 mr-2" />
-                            Sign Out
-                        </button>
-                    </div>
+        <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <div className="container mx-auto px-4">
+                <div className="flex h-16 items-center justify-between">
+                    {/* Logo/Brand */}
+                    <Link href="/" >
+                        <div className="flex items-center space-x-2">
+                            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                                <FileText className="w-5 h-5 text-white" />
+                            </div>
+                            <span className="text-xl font-bold text-slate-900 dark:text-white">README Generator</span>
+                        </div>
+                    </Link>
+
+                    {/* User Menu */}
+                    {session?.user && (
+                        <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" className="relative h-10 w-10 rounded-full">
+                                    <Avatar className="h-10 w-10">
+                                        <AvatarImage src={session.user.image || ""} alt={session.user.name || ""} />
+                                        <AvatarFallback>
+                                            <User className="h-4 w-4" />
+                                        </AvatarFallback>
+                                    </Avatar>
+                                </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-56" align="end" forceMount>
+                                <DropdownMenuLabel className="font-normal">
+                                    <div className="flex flex-col space-y-1">
+                                        <p className="text-sm font-medium leading-none">{session.user.name}</p>
+                                        <p className="text-xs leading-none text-muted-foreground">{session.user.email}</p>
+                                    </div>
+                                </DropdownMenuLabel>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem asChild>
+                                    <Link href="/" className="cursor-pointer">
+                                        <Home className="mr-2 h-4 w-4" />
+                                        <span>Home</span>
+                                    </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                    <Link href="/repositories" className="cursor-pointer">
+                                        <Github className="mr-2 h-4 w-4" />
+                                        <span>Repositories</span>
+                                    </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    className="cursor-pointer text-red-600 focus:text-red-600"
+                                    onClick={() => signOut({ callbackUrl: "/" })}
+                                >
+                                    <LogOut className="mr-2 h-4 w-4" />
+                                    <span>Sign out</span>
+                                </DropdownMenuItem>
+                            </DropdownMenuContent>
+                        </DropdownMenu>
+                    )}
                 </div>
             </div>
         </nav>
     )
 }
-
-export default Navbar

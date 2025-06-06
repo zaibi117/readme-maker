@@ -75,7 +75,6 @@ export const authOptions: NextAuthOptions = {
           email: user.email || profile?.email || `${profile?.login}@users.noreply.github.com`,
           name: user.name!,
           image: user.image,
-          accessToken: account?.access_token
         })
         return true
       } catch (error) {

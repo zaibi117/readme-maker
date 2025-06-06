@@ -157,7 +157,7 @@ export function StatusPanel({ status, chunks, summarizedChunks, isProcessing, on
               <Timer className="h-4 w-4 text-blue-600" />
               <AlertDescription className="text-xs text-blue-800">
                 <div className="space-y-1">
-                  <div>Rate limiting: Max 15 Gemini API requests per minute</div>
+                  <div>Rate limiting: Max 15 requests per minute to avoid overload</div>
                   <div>Failed chunks are automatically skipped to ensure progress</div>
                 </div>
               </AlertDescription>

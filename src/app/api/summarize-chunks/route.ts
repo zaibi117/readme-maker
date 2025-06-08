@@ -1,6 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
 import type { ChunkedFile } from "@/types/repository"
 import { geminiRateLimiter } from "@/lib/rate-limiter"
+import { UserRateLimiter } from "@/lib/user-rate-limiter"
 
 interface SummarizeRequest {
   chunks: ChunkedFile[]
@@ -75,17 +78,64 @@ export async function POST(req: NextRequest) {
     const { chunks, accessToken } = body
 
     if (!chunks || !Array.isArray(chunks)) {
-      return NextResponse.json({ error: "Invalid chunks data" }, { status: 400 })
+      return NextResponse.json(
+        {
+          error: "Invalid request",
+          details: "Chunks data is required and must be an array",
+          code: "INVALID_CHUNKS",
+        },
+        { status: 400 },
+      )
     }
 
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) {
-      return NextResponse.json({ error: "Gemini API key not configured" }, { status: 500 })
+      return NextResponse.json(
+        {
+          error: "Service configuration error",
+          details: "AI service is not properly configured. Please contact support.",
+          code: "MISSING_API_KEY",
+        },
+        { status: 500 },
+      )
     }
 
-    console.log(`Processing ${chunks.length} chunks for summarization`)
+    // Check user authentication and premium status
+    const session = await getServerSession(authOptions)
+    let isPremiumUser = false
+    let userLimitInfo = null
+
+    if (session?.user?.id) {
+      try {
+        userLimitInfo = await UserRateLimiter.checkReadmeGenerationLimit(session.user.id)
+        isPremiumUser = userLimitInfo.isPremium
+
+        // For free users, check if they have remaining generations
+        if (!isPremiumUser && !userLimitInfo.allowed) {
+          return NextResponse.json(
+            {
+              error: "Daily limit exceeded",
+              details: `You have reached your daily limit of ${userLimitInfo.total} README generation${userLimitInfo.total > 1 ? "s" : ""}. Upgrade to Premium for unlimited generations.`,
+              code: "RATE_LIMIT_EXCEEDED",
+              rateLimitInfo: userLimitInfo,
+            },
+            { status: 429 },
+          )
+        }
+      } catch (error) {
+        console.error("Error checking user limits:", error)
+        // Continue without premium features if user check fails
+      }
+    }
+
+    console.log(`Processing ${chunks.length} chunks for summarization (Premium: ${isPremiumUser})`)
     const summarizedChunks: ChunkedFile[] = []
     let skippedCount = 0
+    let errorCount = 0
+
+    // Premium users get faster processing with reduced delays
+    const processingDelay = isPremiumUser ? 300 : 500
+    const maxRetries = isPremiumUser ? 5 : 3
 
     // Process chunks sequentially to respect rate limiting
     for (let i = 0; i < chunks.length; i++) {
@@ -135,7 +185,7 @@ ${chunk.content}
                   temperature: 0.1,
                   topK: 1,
                   topP: 1,
-                  maxOutputTokens: 200,
+                  maxOutputTokens: isPremiumUser ? 300 : 200, // Premium users get more detailed summaries
                 },
                 safetySettings: [
                   {
@@ -162,18 +212,29 @@ ${chunk.content}
           if (!response.ok) {
             const errorText = await response.text()
             console.error(`Gemini API error ${response.status}:`, errorText)
-            throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
+
+            // Provide more specific error messages
+            let errorMessage = `AI service error (${response.status})`
+            if (response.status === 429) {
+              errorMessage = "AI service rate limit exceeded. Please try again later."
+            } else if (response.status >= 500) {
+              errorMessage = "AI service is temporarily unavailable. Please try again."
+            } else if (response.status === 403) {
+              errorMessage = "AI service access denied. Please check configuration."
+            }
+
+            throw new Error(errorMessage)
           }
 
           const data = await response.json()
 
           if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
             console.error("Invalid response structure:", data)
-            throw new Error("Invalid response structure from Gemini API")
+            throw new Error("AI service returned invalid response format")
           }
 
           return data.candidates[0].content.parts[0].text
-        })
+        }, maxRetries)
 
         // Successfully summarized - add to results
         summarizedChunks.push({
@@ -183,12 +244,13 @@ ${chunk.content}
 
         console.log(`Successfully summarized chunk ${i + 1}/${chunks.length}`)
 
-        // Add delay between requests (reduced since we have rate limiting)
+        // Add delay between requests (premium users get faster processing)
         if (i < chunks.length - 1) {
-          await delay(500) // Reduced from 1000ms since rate limiter handles the timing
+          await delay(processingDelay)
         }
       } catch (error) {
         console.error(`Failed to summarize chunk ${chunk.file}:${chunk.chunk}:`, error)
+        errorCount++
 
         // Check if we should skip this chunk due to API errors
         if (shouldSkipChunk(error as Error)) {
@@ -199,9 +261,10 @@ ${chunk.content}
         }
 
         // For other types of errors, add chunk with error message
+        const errorMessage = error instanceof Error ? error.message : "Unknown error occurred"
         summarizedChunks.push({
           ...chunk,
-          summary: `[Summarization failed: ${error instanceof Error ? error.message : "Unknown error"}]`,
+          summary: `[Summarization failed: ${errorMessage}]`,
         })
       }
     }
@@ -211,30 +274,78 @@ ${chunk.content}
     ).length
 
     console.log(
-      `Completed summarization: ${successfulCount} chunks successfully processed, ${skippedCount} chunks skipped due to API errors`,
+      `Completed summarization: ${successfulCount} chunks successfully processed, ${skippedCount} chunks skipped, ${errorCount} errors`,
     )
 
-    return NextResponse.json({
+    // Prepare response with detailed information
+    const response = {
       summarizedChunks,
       stats: {
         total: chunks.length,
         successful: successfulCount,
         skipped: skippedCount,
-        failed: summarizedChunks.length - successfulCount,
+        failed: errorCount,
+        isPremium: isPremiumUser,
       },
       rateLimitInfo: {
         remaining: geminiRateLimiter.getRemainingRequests("gemini-api"),
         resetTime: geminiRateLimiter.getRemainingTime("gemini-api"),
       },
-    })
+      userInfo: userLimitInfo
+        ? {
+          isPremium: userLimitInfo.isPremium,
+          remaining: userLimitInfo.remaining,
+          total: userLimitInfo.total,
+          resetAt: userLimitInfo.resetAt,
+        }
+        : null,
+    }
+
+    // If too many chunks failed, return an error
+    if (successfulCount === 0 && chunks.length > 0) {
+      return NextResponse.json(
+        {
+          error: "Processing failed",
+          details: "Unable to process any code chunks. This may be due to AI service issues or invalid content.",
+          code: "PROCESSING_FAILED",
+          ...response,
+        },
+        { status: 500 },
+      )
+    }
+
+    return NextResponse.json(response)
   } catch (error) {
     console.error("Error in summarize-chunks API:", error)
+
+    // Provide specific error messages based on error type
+    let errorMessage = "Failed to process code chunks"
+    let errorCode = "UNKNOWN_ERROR"
+    let statusCode = 500
+
+    if (error instanceof Error) {
+      if (error.message.includes("User not found")) {
+        errorMessage = "User authentication error"
+        errorCode = "USER_NOT_FOUND"
+        statusCode = 401
+      } else if (error.message.includes("rate limit")) {
+        errorMessage = "Service rate limit exceeded"
+        errorCode = "RATE_LIMIT_EXCEEDED"
+        statusCode = 429
+      } else if (error.message.includes("network") || error.message.includes("fetch")) {
+        errorMessage = "Network connection error"
+        errorCode = "NETWORK_ERROR"
+      }
+    }
+
     return NextResponse.json(
       {
-        error: "Failed to summarize chunks",
-        details: error instanceof Error ? error.message : "Unknown error",
+        error: errorMessage,
+        details: error instanceof Error ? error.message : "An unexpected error occurred",
+        code: errorCode,
+        timestamp: new Date().toISOString(),
       },
-      { status: 500 },
+      { status: statusCode },
     )
   }
 }

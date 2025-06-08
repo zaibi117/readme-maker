@@ -348,11 +348,18 @@ export function useRepositoryProcessor({
       const chunkBatchSize = 2 // Reduced batch size to respect rate limits better
       const delayBetweenChunks = 1000 // Reduced delay since rate limiter handles timing
       let totalSkipped = 0
+      let rateLimitExceeded = false
 
       for (let i = 0; i < allChunks.length; i += chunkBatchSize) {
         if (shouldStopRef.current) {
           console.log("Processing stopped during summarization")
           return
+        }
+
+        // Stop processing if rate limit was exceeded
+        if (rateLimitExceeded) {
+          console.log("Stopping chunk processing due to rate limit exceeded")
+          break
         }
 
         const chunkBatch = allChunks.slice(i, i + chunkBatchSize)
@@ -386,6 +393,29 @@ export function useRepositoryProcessor({
           if (!response.ok) {
             const errorText = await response.text()
             console.error("Summarization API error:", errorText)
+
+            // Check for rate limit exceeded error
+            try {
+              const errorData = JSON.parse(errorText)
+              if (errorData.code === "RATE_LIMIT_EXCEEDED") {
+                console.log("Rate limit exceeded - stopping chunk processing")
+                rateLimitExceeded = true
+
+                updateStatus({
+                  stage: "error",
+                  message: "Daily README generation limit reached. You can only genrate 1 Readme per day.",
+                  progress: 70 + (i / allChunks.length) * 15,
+                  error: errorData.message || "Rate limit exceeded",
+                })
+
+                setIsProcessing(false)
+                return
+              }
+            } catch (parseError) {
+              // If we can't parse the error, treat it as a regular error
+              console.error("Failed to parse error response:", parseError)
+            }
+
             throw new Error(`Server error: ${response.status} - ${errorText}`)
           }
 
@@ -432,9 +462,15 @@ export function useRepositoryProcessor({
           totalSkipped += chunkBatch.length
         }
 
-        if (i + chunkBatchSize < allChunks.length && !shouldStopRef.current) {
+        if (i + chunkBatchSize < allChunks.length && !shouldStopRef.current && !rateLimitExceeded) {
           await new Promise((resolve) => setTimeout(resolve, delayBetweenChunks))
         }
+      }
+
+      // If rate limit was exceeded, don't continue with README generation
+      if (rateLimitExceeded) {
+        console.log("Processing stopped due to rate limit exceeded")
+        return
       }
 
       if (shouldStopRef.current) {
@@ -521,6 +557,25 @@ Please check the repository for license information.`
         if (!response.ok) {
           const errorText = await response.text()
           console.error("README generation API error:", errorText)
+
+          // Check for rate limit exceeded error in README generation
+          try {
+            const errorData = JSON.parse(errorText)
+            if (errorData.code === "RATE_LIMIT_EXCEEDED") {
+              updateStatus({
+                stage: "error",
+                message:
+                  "Daily README generation limit reached during final generation. Upgrade to Premium for unlimited access.",
+                progress: 90,
+                error: errorData.message || "Rate limit exceeded",
+              })
+              setIsProcessing(false)
+              return
+            }
+          } catch (parseError) {
+            console.error("Failed to parse README generation error response:", parseError)
+          }
+
           throw new Error(`Server error: ${response.status} - ${errorText}`)
         }
 

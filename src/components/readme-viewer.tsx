@@ -131,55 +131,6 @@ export function ReadmeViewer({
     }
   }, [owner, repo])
 
-  // Save generated README to MongoDB
-  useEffect(() => {
-    async function saveGeneratedReadme() {
-      if (!generatedReadme || !owner || !repo) return
-
-      try {
-        // @ts-ignore
-        const accessToken = session?.user?.accessToken as string | undefined
-        const response = await fetch("/api/readme", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            owner,
-            repo,
-            readmeContent: generatedReadme,
-            accessToken,
-          }),
-        })
-
-        if (!response.ok) {
-          console.error("Failed to save README to database:", response.statusText)
-          return
-        }
-
-        // Update the local state with the new generated README
-        setReadmeData((prev) => {
-          if (!prev) return null
-          return {
-            ...prev,
-            generatedReadme: {
-              content: generatedReadme,
-              generatedAt: new Date().toISOString(),
-            },
-          }
-        })
-
-        // Switch to the generated tab
-        setActiveTab("generated")
-      } catch (err) {
-        console.error("Error saving README:", err)
-      }
-    }
-
-    if (generatedReadme) {
-      saveGeneratedReadme()
-    }
-  }, [generatedReadme, owner, repo, session])
 
   const clearCache = async () => {
     try {

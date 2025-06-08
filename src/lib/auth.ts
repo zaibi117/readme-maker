@@ -36,7 +36,6 @@ async function createOrUpdateUser(userData: {
       // Update existing user
       existingUser.name = userData.name
       existingUser.image = userData.image
-      existingUser.accessToken = userData.accessToken
       existingUser.lastLogin = new Date()
       await existingUser.save()
       return existingUser
@@ -47,8 +46,8 @@ async function createOrUpdateUser(userData: {
         email: userData.email,
         name: userData.name,
         image: userData.image,
-        accessToken: userData.accessToken,
-        provider: 'github'
+        provider: 'github',
+        isPremium: false
       })
       return newUser
     }
@@ -90,13 +89,12 @@ export const authOptions: NextAuthOptions = {
           name: token.name,
           email: token.email,
           image: token.picture,
-          accessToken: token.accessToken
+          accessToken: token.accessToken,
         }
       }
       return session
     },
     async jwt({ token, account, profile }) {
-      console.log("account", account)
       if (account) {
         token.accessToken = account?.access_token
       }

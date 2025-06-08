@@ -2,7 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -17,9 +17,16 @@ import {
   StopCircle,
   Timer,
   SkipForward,
+  Database,
+  RefreshCw,
+  Crown,
+  Zap,
+  AlertCircle,
+  Info,
 } from "lucide-react"
 import { SummariesList } from "./summaries-list"
 import type { ProcessingStatus, ChunkedFile } from "@/types/repository"
+import { useSession } from "next-auth/react"
 
 interface StatusPanelProps {
   status: ProcessingStatus
@@ -27,9 +34,19 @@ interface StatusPanelProps {
   summarizedChunks: ChunkedFile[]
   isProcessing: boolean
   onStop: () => void
+  onRetryFromCache?: () => void
+  cacheMetadata?: any
 }
 
-export function StatusPanel({ status, chunks, summarizedChunks, isProcessing, onStop }: StatusPanelProps) {
+export function StatusPanel({
+  status,
+  chunks,
+  summarizedChunks,
+  isProcessing,
+  onStop,
+  onRetryFromCache,
+  cacheMetadata,
+}: StatusPanelProps) {
   const getStatusIcon = () => {
     if (status.stage === "error") {
       return <XCircle className="h-4 w-4 text-red-500" />
@@ -59,11 +76,31 @@ export function StatusPanel({ status, chunks, summarizedChunks, isProcessing, on
     }
   }
 
+  const getErrorSeverity = (error: string) => {
+    if (error.includes("rate limit") || error.includes("Daily limit exceeded")) {
+      return "warning"
+    }
+    if (error.includes("network") || error.includes("timeout")) {
+      return "info"
+    }
+    return "error"
+  }
+
+  const getErrorIcon = (severity: string) => {
+    switch (severity) {
+      case "warning":
+        return <AlertTriangle className="h-4 w-4" />
+      case "info":
+        return <Info className="h-4 w-4" />
+      default:
+        return <AlertCircle className="h-4 w-4" />
+    }
+  }
+
   const canStop = isProcessing && !["complete", "error", "stopped"].includes(status.stage)
 
   // Check if there are skipped chunks mentioned in the status message
   const hasSkippedChunks = status.message.includes("skipped")
-
   return (
     <>
       <Card>
@@ -77,7 +114,7 @@ export function StatusPanel({ status, chunks, summarizedChunks, isProcessing, on
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium">Progress</span>
-              <span className="text-sm text-gray-500">{status.progress}%</span>
+              <span className="text-sm text-muted-foreground">{status.progress}%</span>
             </div>
             <Progress value={status.progress} className="w-full h-2" />
           </div>
@@ -107,19 +144,19 @@ export function StatusPanel({ status, chunks, summarizedChunks, isProcessing, on
             </div>
 
             {status.currentFile && (
-              <div className="text-xs text-gray-500 pl-6 bg-gray-50 p-2 rounded">
+              <div className="text-xs text-muted-foreground pl-6 bg-muted p-2 rounded">
                 <span className="font-medium">Current file:</span> {status.currentFile}
               </div>
             )}
 
             {status.totalFiles && (
-              <div className="text-xs text-gray-500 pl-6">
+              <div className="text-xs text-muted-foreground pl-6">
                 <span className="font-medium">Files:</span> {status.processedFiles}/{status.totalFiles}
               </div>
             )}
 
             {status.totalChunks && (
-              <div className="text-xs text-gray-500 pl-6">
+              <div className="text-xs text-muted-foreground pl-6">
                 <span className="font-medium">Chunks:</span> {status.processedChunks}/{status.totalChunks}
               </div>
             )}
@@ -127,37 +164,105 @@ export function StatusPanel({ status, chunks, summarizedChunks, isProcessing, on
             {hasSkippedChunks && (
               <Alert className="mt-4 border-yellow-200 bg-yellow-50">
                 <SkipForward className="h-4 w-4 text-yellow-600" />
+                <AlertTitle className="text-yellow-800">Some chunks were skipped</AlertTitle>
                 <AlertDescription className="text-yellow-800">
                   Some chunks were skipped due to API errors (overloaded servers, timeouts, etc.). Processing continues
-                  with available data.
+                  with available data. This is normal and doesn't affect the final result quality.
                 </AlertDescription>
               </Alert>
             )}
 
             {status.error && (
-              <Alert className="mt-4 border-red-200 bg-red-50">
-                <XCircle className="h-4 w-4 text-red-600" />
-                <AlertDescription className="text-red-800">{status.error}</AlertDescription>
+              <Alert
+                className={`mt-4 ${getErrorSeverity(status.error) === "warning"
+                  ? "border-yellow-200 bg-yellow-50"
+                  : getErrorSeverity(status.error) === "info"
+                    ? "border-blue-200 bg-blue-50"
+                    : "border-red-200 bg-red-50"
+                  }`}
+              >
+                {getErrorIcon(getErrorSeverity(status.error))}
+                <AlertTitle
+                  className={
+                    getErrorSeverity(status.error) === "warning"
+                      ? "text-yellow-800"
+                      : getErrorSeverity(status.error) === "info"
+                        ? "text-blue-800"
+                        : "text-red-800"
+                  }
+                >
+                  {getErrorSeverity(status.error) === "warning"
+                    ? "Processing Limited"
+                    : getErrorSeverity(status.error) === "info"
+                      ? "Temporary Issue"
+                      : "Processing Error"}
+                </AlertTitle>
+                <AlertDescription
+                  className={
+                    getErrorSeverity(status.error) === "warning"
+                      ? "text-yellow-800"
+                      : getErrorSeverity(status.error) === "info"
+                        ? "text-blue-800"
+                        : "text-red-800"
+                  }
+                >
+                  {status.error}
+                  {status.error.includes("Daily limit exceeded") && (
+                    <div className="mt-2">
+                      <Button size="sm" variant="outline" className="text-yellow-700 border-yellow-300">
+                        <Crown className="h-3 w-3 mr-1" />
+                        Upgrade to Premium
+                      </Button>
+                    </div>
+                  )}
+                </AlertDescription>
               </Alert>
+            )}
+
+            {status.stage === "error" && cacheMetadata && onRetryFromCache && (
+              <div className="mt-4">
+                <Button
+                  onClick={onRetryFromCache}
+                  size="sm"
+                  disabled={isProcessing}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  {isProcessing ? (
+                    <>
+                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      Retrying...
+                    </>
+                  ) : (
+                    <>
+                      <Database className="h-4 w-4 mr-2" />
+                      Retry from Cache
+                    </>
+                  )}
+                </Button>
+              </div>
             )}
 
             {status.stage === "stopped" && (
               <Alert className="mt-4 border-orange-200 bg-orange-50">
                 <StopCircle className="h-4 w-4 text-orange-600" />
+                <AlertTitle className="text-orange-800">Processing Stopped</AlertTitle>
                 <AlertDescription className="text-orange-800">
-                  Processing was stopped by user. You can refresh the page to start over.
+                  Processing was stopped by user. You can refresh the page to start over or try generating from cache if
+                  available.
                 </AlertDescription>
               </Alert>
             )}
           </div>
 
+
           {/* Rate Limiting Info */}
           {(status.stage === "summarizing-chunks" || status.stage === "generating-readme") && (
             <Alert className="border-blue-200 bg-blue-50">
               <Timer className="h-4 w-4 text-blue-600" />
+              <AlertTitle className="text-blue-800">Processing Information</AlertTitle>
               <AlertDescription className="text-xs text-blue-800">
                 <div className="space-y-1">
-                  <div>Rate limiting: Max 15 requests per minute to avoid overload</div>
+                  <div>Rate limiting: Max 15 Gemini API requests per minute</div>
                   <div>Failed chunks are automatically skipped to ensure progress</div>
                 </div>
               </AlertDescription>
@@ -168,8 +273,10 @@ export function StatusPanel({ status, chunks, summarizedChunks, isProcessing, on
           {status.stage === "downloading-content" && (
             <Alert className="border-amber-200 bg-amber-50">
               <AlertTriangle className="h-4 w-4 text-amber-600" />
+              <AlertTitle className="text-amber-800">Efficient Processing</AlertTitle>
               <AlertDescription className="text-xs text-amber-800">
-                Using efficient batch processing to avoid GitHub rate limits. Processing up to 30 files.
+                Using efficient batch processing to avoid GitHub rate limits. Processing up to 30 files for optimal
+                performance.
               </AlertDescription>
             </Alert>
           )}

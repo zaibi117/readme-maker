@@ -1,6 +1,10 @@
 import { type NextRequest, NextResponse } from "next/server"
 import type { ChunkedFile } from "@/types/repository"
 import { geminiRateLimiter } from "@/lib/rate-limiter"
+import { getServerSession } from "next-auth"
+import { authOptions } from "@/lib/auth"
+import { UserRateLimiter } from "@/lib/user-rate-limiter"
+import connectToDatabase from "@/lib/mongodb"
 
 interface GenerateReadmeRequest {
   summaries: ChunkedFile[]
@@ -47,8 +51,41 @@ async function retryApiCallWithRateLimit<T>(apiCall: () => Promise<T>, maxRetrie
 
 export async function POST(req: NextRequest) {
   console.log("README generation API called")
+  const startTime = Date.now()
 
   try {
+    // Check user authentication
+    const session = await getServerSession(authOptions)
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: "Authentication required" }, { status: 401 })
+    }
+
+    // Connect to database
+    await connectToDatabase()
+
+    // Check user rate limit
+    const userId = session.user.id
+    const rateLimitCheck = await UserRateLimiter.checkReadmeGenerationLimit(userId)
+
+    if (!rateLimitCheck.allowed && !rateLimitCheck.isPremium) {
+      const resetTime = rateLimitCheck.resetAt ? new Date(rateLimitCheck.resetAt).toLocaleString() : "tomorrow"
+
+      return NextResponse.json(
+        {
+          error: "Daily README generation limit reached",
+          details: {
+            message: "You've reached your daily limit for free README generations",
+            limit: rateLimitCheck.total,
+            resetAt: resetTime,
+            isPremium: false,
+            upgradeRequired: true,
+          },
+        },
+        { status: 429 },
+      )
+    }
+
     const body: GenerateReadmeRequest = await req.json()
     const { summaries, owner, repo, accessToken } = body
 
@@ -97,9 +134,11 @@ export async function POST(req: NextRequest) {
       })
       .join("\n\n")
 
+    let readme: string
+
     if (!fileSummaries.trim()) {
       console.warn("No valid summaries found, creating basic README")
-      const basicReadme = `# ${owner}/${repo}
+      readme = `# ${owner}/${repo}
 
 ## Overview
 
@@ -120,57 +159,54 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 Please check the repository for license information.`
+    } else {
+      // Fetch additional repository information if access token is provided
+      let repoInfo: any = {}
+      if (accessToken) {
+        try {
+          console.log("Fetching repository info with access token")
+          const repoResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+            headers: {
+              Accept: "application/vnd.github.v3+json",
+              Authorization: `Bearer ${accessToken}`,
+              "User-Agent": "GitHub-README-Generator",
+            },
+          })
 
-      return NextResponse.json({ readme: basicReadme })
-    }
-
-    // Fetch additional repository information if access token is provided
-    let repoInfo: any = {}
-    if (accessToken) {
-      try {
-        console.log("Fetching repository info with access token")
-        const repoResponse = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
-          headers: {
-            Accept: "application/vnd.github.v3+json",
-            Authorization: `Bearer ${accessToken}`,
-            "User-Agent": "GitHub-README-Generator",
-          },
-        })
-
-        if (repoResponse.ok) {
-          repoInfo = await repoResponse.json()
-          console.log("Fetched repository info successfully")
-        } else {
-          console.warn("Failed to fetch repository info:", repoResponse.status)
+          if (repoResponse.ok) {
+            repoInfo = await repoResponse.json()
+            console.log("Fetched repository info successfully")
+          } else {
+            console.warn("Failed to fetch repository info:", repoResponse.status)
+          }
+        } catch (error) {
+          console.warn("Failed to fetch additional repository info:", error)
         }
-      } catch (error) {
-        console.warn("Failed to fetch additional repository info:", error)
       }
-    }
 
-    // Create repository context
-    const repoContext = repoInfo.description ? `Repository Description: ${repoInfo.description}\n` : ""
-    const repoLanguage = repoInfo.language ? `Primary Language: ${repoInfo.language}\n` : ""
+      // Create repository context
+      const repoContext = repoInfo.description ? `Repository Description: ${repoInfo.description}\n` : ""
+      const repoLanguage = repoInfo.language ? `Primary Language: ${repoInfo.language}\n` : ""
 
-    console.log("Calling Gemini API for README generation")
+      console.log("Calling Gemini API for README generation")
 
-    const readme = await retryApiCallWithRateLimit(async () => {
-      const response = await fetch(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": apiKey,
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [
-                  {
-                    text: `Generate a comprehensive and professional README.md for the GitHub repository "${owner}/${repo}".
+      readme = await retryApiCallWithRateLimit(async () => {
+        const response = await fetch(
+          "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-goog-api-key": apiKey,
+            },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [
+                    {
+                      text: `Generate a comprehensive and professional README.md for the GitHub repository "${owner}/${repo}".
 
-${repoContext}\\${repoLanguage}
+${repoContext}${repoLanguage}
 
 Based on the following code analysis:
 
@@ -178,101 +214,109 @@ ${fileSummaries}
 
 Create a README that includes:
 
-1. **Project Title and Description** - Clear, engaging description  
-2. **Features** - Key functionality and capabilities  
-3. **Technologies Used** - Programming languages, frameworks, libraries  
-4. **Installation** - Step-by-step setup instructions  
-5. **Usage** - Code examples and basic usage  
-6. **Project Structure** - Brief overview of main files/directories  
-   - **STRICTLY USE a tree-like structure** (e.g. generated by \`tree\` command or similar)  
-   - Clearly show hierarchy and purpose of major components  
-7. **Contributing** - Guidelines for contributors  
-8. **License** - Standard license section  
+1. **Project Title and Description** - Clear, engaging description
+2. **Features** - Key functionality and capabilities
+3. **Technologies Used** - Programming languages, frameworks, libraries
+4. **Installation** - Step-by-step setup instructions
+5. **Usage** - Code examples and basic usage
+6. **Project Structure** - Brief overview of main files/directories
+7. **Contributing** - Guidelines for contributors
+8. **License** - Standard license section
 
-**IMPORTANT:**  
-- Generate ONLY the README content in markdown format  
-- DO NOT wrap the output in markdown code blocks (no \\\`\\\`\\\`markdown)  
-- DO NOT include any prefixes or suffixes  
-- Start directly with the \`#\` title  
-- Use proper Markdown syntax throughout  
-- Include code blocks with syntax highlighting where appropriate  
-- Make it professional, clean, and easy to read  
-- Ensure **Project Structure** uses an indented tree format like:
-  \`\`\`
-  ├── public/
-  ├── src/
-  │   ├── components/
-  │   ├── pages/
-  │   └── utils/
-  └── package.json
-  \`\`\``,
-                  },
-                ],
+IMPORTANT: 
+- Generate ONLY the README content in markdown format
+- Do NOT wrap the output in markdown code blocks (no \`\`\`markdown)
+- Do NOT include any prefixes or suffixes
+- Start directly with the # title
+- Use proper Markdown syntax throughout
+- Include code blocks with syntax highlighting where appropriate
+- Make it professional and easy to read
+
+Generate only the raw markdown content, nothing else.`,
+                    },
+                  ],
+                },
+              ],
+              generationConfig: {
+                temperature: 0.3,
+                topK: 40,
+                topP: 0.95,
+                maxOutputTokens: 2048,
               },
-            ],
-            generationConfig: {
-              temperature: 0.3,
-              topK: 40,
-              topP: 0.95,
-              maxOutputTokens: 2048,
-            },
-            safetySettings: [
-              {
-                category: "HARM_CATEGORY_HARASSMENT",
-                threshold: "BLOCK_MEDIUM_AND_ABOVE",
-              },
-              {
-                category: "HARM_CATEGORY_HATE_SPEECH",
-                threshold: "BLOCK_MEDIUM_AND_ABOVE",
-              },
-              {
-                category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                threshold: "BLOCK_MEDIUM_AND_ABOVE",
-              },
-              {
-                category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-                threshold: "BLOCK_MEDIUM_AND_ABOVE",
-              },
-            ],
-          }),
-        },
-      )
+              safetySettings: [
+                {
+                  category: "HARM_CATEGORY_HARASSMENT",
+                  threshold: "BLOCK_MEDIUM_AND_ABOVE",
+                },
+                {
+                  category: "HARM_CATEGORY_HATE_SPEECH",
+                  threshold: "BLOCK_MEDIUM_AND_ABOVE",
+                },
+                {
+                  category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                  threshold: "BLOCK_MEDIUM_AND_ABOVE",
+                },
+                {
+                  category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+                  threshold: "BLOCK_MEDIUM_AND_ABOVE",
+                },
+              ],
+            }),
+          },
+        )
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.error(`Gemini API error ${response.status}:`, errorText)
-        throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
-      }
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error(`Gemini API error ${response.status}:`, errorText)
+          throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
+        }
 
-      const data = await response.json()
+        const data = await response.json()
 
+        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+          console.error("Invalid response structure:", data)
+          throw new Error("Invalid response structure from Gemini API")
+        }
 
-      if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-        console.error("Invalid response structure:", data)
-        throw new Error("Invalid response structure from Gemini API")
-      }
+        let cleanedReadme = data.candidates[0].content.parts[0].text
 
-      let cleanedReadme = data.candidates[0].content.parts[0].text
-      console.log("THis is the data", cleanedReadme)
-      // Remove markdown code block wrappers if present
-      cleanedReadme = cleanedReadme.replace(/^```markdown\s*\n?/i, "")
-      cleanedReadme = cleanedReadme.replace(/\n?```\s*$/i, "")
-      cleanedReadme = cleanedReadme.replace(/^```\s*\n?/i, "")
-      cleanedReadme = cleanedReadme.replace(/\n?```\s*$/i, "")
+        // Remove markdown code block wrappers if present
+        cleanedReadme = cleanedReadme.replace(/^```markdown\s*\n?/i, "")
+        cleanedReadme = cleanedReadme.replace(/\n?```\s*$/i, "")
+        cleanedReadme = cleanedReadme.replace(/^```\s*\n?/i, "")
+        cleanedReadme = cleanedReadme.replace(/\n?```\s*$/i, "")
 
-      // Trim any extra whitespace
-      cleanedReadme = cleanedReadme.trim()
+        // Trim any extra whitespace
+        cleanedReadme = cleanedReadme.trim()
 
-      return cleanedReadme
+        return cleanedReadme
+      })
+    }
+
+    // Calculate processing time
+    const processingTime = Date.now() - startTime
+
+    // Record the README generation with enhanced data
+    const { rateLimitInfo, readmeId } = await UserRateLimiter.recordReadmeGeneration(userId, {
+      owner,
+      repo,
+      readmeContent: readme,
+      repoId: `${owner}/${repo}`,
+      source: "generated",
+      processingTime,
+      chunkCount: summaries.length,
     })
 
     console.log("README generated successfully")
     return NextResponse.json({
       readme,
+      readmeId,
       rateLimitInfo: {
         remaining: geminiRateLimiter.getRemainingRequests("gemini-api"),
         resetTime: geminiRateLimiter.getRemainingTime("gemini-api"),
       },
+      userRateLimit: rateLimitInfo,
+      processingTime,
     })
   } catch (error) {
     console.error("Error in generate-readme API:", error)
@@ -320,6 +364,21 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 Please check the repository for license information.`
+
+      // Try to record the README generation even for fallback
+      const session = await getServerSession(authOptions)
+      if (session?.user?.id) {
+        const processingTime = Date.now() - startTime
+        await UserRateLimiter.recordReadmeGeneration(session.user.id, {
+          owner,
+          repo,
+          readmeContent: fallbackReadme,
+          repoId: `${owner}/${repo}`,
+          source: "generated",
+          processingTime,
+          chunkCount: summaries?.length || 0,
+        })
+      }
 
       return NextResponse.json({ readme: fallbackReadme })
     } catch (fallbackError) {

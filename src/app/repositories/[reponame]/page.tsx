@@ -43,7 +43,11 @@ export default function RepositoryPage() {
           <h1 className="text-3xl font-bold text-foreground mb-2">
             Repository Analysis: {owner}/{repo}
           </h1>
-          <p className="text-muted-foreground">Processing repository and generating README documentation</p>
+          <p className="text-muted-foreground">
+            <br />
+            <strong>Warning: </strong>The code from your repository may be used by Gemini for training their models.
+            If you don't want to share your code, please don't use this feature.
+          </p>
         </div>
 
         <RepositoryProcessor owner={owner} repo={repo} />
